@@ -1,10 +1,12 @@
 """Test your internet speed using lite"""
 import time
-import schedule
 import asyncio
 import sqlite3
 from datetime import datetime
+import schedule
 import speedtest as st
+import matplotlib.pyplot as plt
+import pandas as pd
 
 DB_NAME = 'speed_test.db'
 
@@ -63,14 +65,49 @@ def save_results(download, upload, ping, server):
     conn.close()
     print('Results saved successfully')
 
+def show_weekly_speed_trends():
+    """Visualize weekly average internet speeds using Matplotlib"""
+    conn = sqlite3.connect(DB_NAME)
+
+    df = pd.read_sql_query("SELECT * FROM speed_results", conn)
+    conn.close()
+
+    if df.empty:
+        print("No data found in database.")
+        return
+
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+    df['week'] = df['timestamp'].dt.strftime('%Y-W%U')
+
+    weekly_avg = (
+        df.groupby('week')[['download', 'upload']]
+        .mean()
+        .reset_index()
+    )
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(weekly_avg['week'], weekly_avg['download'], label='Download (Mbps)', marker='o')
+    plt.plot(weekly_avg['week'], weekly_avg['upload'], label='Upload (Mbps)', marker='o')
+
+    plt.title('Average Internet Speed per Week')
+    plt.xlabel('Week')
+    plt.ylabel('Speed (Mbps)')
+    plt.xticks(rotation=45)
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
 def run_test():
     """Running speed test hourly"""
-    init_db()
     asyncio.run(speed_test_async())
 
-schedule.every().hour.do(run_test)
-
-print("Running hourly speed test. Press Ctrl+C to stop.")
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+if __name__ == "__main__":
+    init_db()
+    show_weekly_speed_trends()
+    schedule.every().hour.do(run_test)
+    print("Running hourly speed test. Press Ctrl+C to stop.")
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
