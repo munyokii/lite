@@ -1,4 +1,6 @@
 """Test your internet speed using lite"""
+import time
+import schedule
 import asyncio
 import sqlite3
 from datetime import datetime
@@ -61,6 +63,14 @@ def save_results(download, upload, ping, server):
     conn.close()
     print('Results saved successfully')
 
-if __name__ == "__main__":
+def run_test():
+    """Running speed test hourly"""
     init_db()
     asyncio.run(speed_test_async())
+
+schedule.every().hour.do(run_test)
+
+print("Running hourly speed test. Press Ctrl+C to stop.")
+while True:
+    schedule.run_pending()
+    time.sleep(1)
