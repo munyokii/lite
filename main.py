@@ -77,7 +77,6 @@ def show_weekly_speed_trends():
         return
 
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-
     df['week'] = df['timestamp'].dt.strftime('%Y-W%U')
 
     weekly_avg = (
@@ -97,7 +96,12 @@ def show_weekly_speed_trends():
     plt.legend()
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.tight_layout()
-    plt.show()
+
+    filename = f"weekly_speed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    plt.savefig(filename)
+    plt.close()
+
+    print(f"Weekly trend chart saved as: {filename}")
 
 def run_test():
     """Running speed test hourly"""
@@ -105,9 +109,14 @@ def run_test():
 
 if __name__ == "__main__":
     init_db()
-    show_weekly_speed_trends()
+
+    schedule.every().monday.at("08:00").do(show_weekly_speed_trends)
     schedule.every().hour.do(run_test)
+
     print("Running hourly speed test. Press Ctrl+C to stop.")
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    try:
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Program stopped by user.")
