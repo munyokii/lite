@@ -36,13 +36,11 @@ OUTAGE_THRESHOLD = 4     # number of consecutive failures before alert
 SCHEDULE_HOURS = 3       # interval between automatic tests
 # ----------------------------------------------------
 
-# Globals that must be available to threads safely (but GUI access via after())
 window = None
 log_box = None
 chart_frame = None
 status_label = None
 
-# ---------------------- Utility / UI-safe helpers ----------------------
 def safe_call(func, *args, **kwargs):
     """
     If called from non-main thread, dispatch to main thread using window.after.
@@ -54,7 +52,6 @@ def safe_call(func, *args, **kwargs):
         else:
             window.after(0, lambda: func(*args, **kwargs))
     except Exception:
-        # If window isn't ready or other issues, fallback to direct call
         try:
             return func(*args, **kwargs)
         except Exception:
@@ -75,12 +72,11 @@ def show_alert(title, message):
     """Displaying alerts"""
     safe_call(messagebox.showwarning, title, message)
 
-# ---------------------- Speedtest core ----------------------
 async def speed_test_async():
     """Run the speedtest in a background thread-safe manner and save results."""
     safe_log("Starting speed test...")
     try:
-        test = speedtest.Speedtest(secure=False)
+        test = speedtest.Speedtest(secure=True)
         # refresh server list
         await asyncio.to_thread(test.get_servers, [])
         await asyncio.to_thread(test.get_best_server)
@@ -103,18 +99,15 @@ async def speed_test_async():
                                 up_mbps, ping, server_name,
                                 server_country, 1)
 
-        # after a success, check cleanup in background
         await asyncio.to_thread(cleanup_old_records, CLEANUP_DAYS)
 
     except Exception as e:
-        # Save a failure row (success=0) so outage detection can detect this
         safe_log(f"Speedtest failed: {e}")
         try:
             await asyncio.to_thread(save_results, None, None, None, "n/a", "n/a", 0)
         except Exception:
             pass
 
-        # Check for outage threshold
         try:
             fails = count_consecutive_failures(limit=OUTAGE_THRESHOLD)
             if fails >= OUTAGE_THRESHOLD:
@@ -126,7 +119,6 @@ def run_test_threaded():
     """Start async speed test in a thread so UI remains responsive."""
     threading.Thread(target=lambda: asyncio.run(speed_test_async()), daemon=True).start()
 
-# ---------------------- Charting ----------------------
 def _build_weekly_df():
     db = get_db_name()
     conn = sqlite3.connect(db)
@@ -134,7 +126,6 @@ def _build_weekly_df():
     conn.close()
     if df.empty:
         return None
-    # only include successful tests
     df = df[df["success"] == 1].copy()
     df["week"] = df["timestamp"].dt.strftime("%Y-W%U")
     weekly = df.groupby("week")[["download","upload"]].mean().reset_index()
@@ -163,7 +154,6 @@ def show_weekly_speed_trends():
         messagebox.showinfo("No Data", "Not enough data to plot weekly chart.")
         return
 
-    # build figure
     fig, ax = plt.subplots(figsize=(7,4), dpi=100)
     ax.plot(weekly['week'], weekly['download'], marker='o', label='Download')
     ax.plot(weekly['week'], weekly['upload'], marker='o', label='Upload')
@@ -174,7 +164,6 @@ def show_weekly_speed_trends():
     ax.grid(True, linestyle='--', alpha=0.4)
     plt.xticks(rotation=45)
 
-    # clear previous
     for w in chart_frame.winfo_children():
         w.destroy()
 
@@ -208,7 +197,6 @@ def show_monthly_speed_trends():
     canvas.draw()
     canvas.get_tk_widget().pack(fill="both", expand=True)
 
-# ---------------------- PDF Export ----------------------
 def export_pdf_report():
     """
     Exports weekly and monthly charts into a single PDF.
@@ -220,7 +208,6 @@ def export_pdf_report():
         messagebox.showinfo("No Data", "No data to export.")
         return
 
-    # Ask user for destination
     path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF files", "*.pdf")],
                                         title="Save PDF report as...")
     if not path:
@@ -261,7 +248,6 @@ def export_pdf_report():
         safe_log(f"PDF export failed: {e}")
         messagebox.showerror("Export Error", f"Failed to generate PDF: {e}")
 
-# ---------------------- Scheduler ----------------------
 def scheduler_loop():
     """
     Run schedule.run_pending in a background thread.
@@ -271,7 +257,6 @@ def scheduler_loop():
         schedule.run_pending()
         time.sleep(1)
 
-# ---------------------- UI Construction ----------------------
 def build_ui():
     """BuIlding application UI"""
     global window, log_box, chart_frame, status_label
@@ -324,7 +309,6 @@ def build_ui():
                             bd=0, padx=10, pady=6)
     btn_cleanup.grid(row=0, column=4, padx=6)
 
-    # Main area: left = log, right = chart
     main = tk.Frame(window, bg=bg)
     main.pack(fill="both", expand=True, padx=8, pady=8)
 
@@ -334,7 +318,6 @@ def build_ui():
     right = tk.Frame(main, bg=panel)
     right.pack(side="right", fill="both", expand=True, padx=(8,0), pady=8)
 
-    # Log area (green terminal style)
     lbl_log = tk.Label(left, text="SYSTEM LOG", bg=panel,
                        fg=neon, font=("Fira Sans Condensed", 12, "bold"))
     lbl_log.pack(anchor="w", pady=(6,0), padx=6)
@@ -344,22 +327,18 @@ def build_ui():
     log_box_widget.pack(fill="both", expand=True, padx=6, pady=6)
     log_box_widget.insert(tk.END, "Initializing...\n")
 
-    # small status below log
     status_label_widget = tk.Label(left,
                                    text="Status: idle", bg=panel,
                                    fg=text_color, font=("Fira Sans Condensed", 10))
     status_label_widget.pack(fill="x", padx=6, pady=(0,6))
 
-    # Chart frame on right
     chart_frame_widget = tk.Frame(right, bg="#07120b")
     chart_frame_widget.pack(fill="both", expand=True, padx=6, pady=6)
 
-    # attach globals
     log_box = log_box_widget
     chart_frame = chart_frame_widget
     status_label = status_label_widget
 
-    # footer
     footer = tk.Label(window,
                       text="Press ▶ to run tests. Scheduler runs in background.",
                       bg=bg, fg="#6ef07a",
@@ -368,35 +347,27 @@ def build_ui():
 
     return window
 
-# ---------------------- Manual DB cleanup helper ----------------------
 def manual_cleanup():
     """Manual Cleanup"""
     safe_log("Manual cleanup requested...")
     deleted = cleanup_old_records(CLEANUP_DAYS)
     safe_log(f"Cleanup complete. Deleted {deleted} old records.")
 
-# ---------------------- Wiring scheduler tasks ----------------------
 def schedule_jobs():
     """Sheduling Tasks to run automatically"""
-    # Use schedule to trigger tests every SCHEDULE_HOURS hours.
-    # Important: jobs that interact with UI must be dispatched to main thread via window.after
     schedule.clear()
     schedule.every(SCHEDULE_HOURS).hours.do(lambda: safe_call(run_test_threaded))
     schedule.every().monday.at("08:00").do(lambda: safe_call(show_weekly_speed_trends))
-    # Periodic auto cleanup weekly
     schedule.every().sunday.at("03:00").do(lambda: safe_call(manual_cleanup))
 
-# ---------------------- Program entrypoint ----------------------
 def main():
     init_db()
     upgrade_schema()
     win = build_ui()
 
-    # schedule tasks
     schedule_jobs()
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
-    # kick off one initial test at startup (non-blocking)
     safe_log("Launching initial startup test...")
     run_test_threaded()
 
